@@ -1,0 +1,236 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Muay Thai Arena 3D</title>
+<style>
+body{margin:0;background:#10151e;color:white;font:14px Arial;text-align:center}
+h2{color:gold;margin:8px}
+button{background:#29394c;color:white;border:1px solid #64748b;border-radius:8px;padding:10px;touch-action:none}
+#arena{height:48vh}
+#controls{display:flex;justify-content:space-between;padding:6px;gap:8px}
+#pad,#hits{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+#msg{padding:8px;color:gold}
+canvas{display:block}
+</style>
+<h2>MUAY THAI ARENA 3D</h2>
+<div id="stats"></div>
+<div id="arena"></div>
+<div id="msg">Escolha um modo</div>
+<button id="career">Carreira</button>
+<button id="quick">Luta rápida</button>
+<button id="train">Treinamento</button>
+<div id="controls"><div id="pad"></div><div id="hits"></div></div>
+<script type="module">
+import * as T from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+const $=id=>document.getElementById(id);
+const scene=new T.Scene();
+scene.background=new T.Color(0x141d2b);
+const camera=new T.PerspectiveCamera(48,1,.1,100);
+const renderer=new T.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+$('arena').appendChild(renderer.domElement);
+scene.add(new T.HemisphereLight(0xffffff,0x444455,2));
+const light=new T.DirectionalLight(0xffffff,3);
+light.position.set(3,8,5);
+scene.add(light);
+function mesh(g,c,p,x,y,z){
+let m=new T.Mesh(g,new T.MeshStandardMaterial({color:c}));
+m.position.set(x,y,z);
+p.add(m);
+return m;
+}
+function box(x,y,z,w,h,d,c){
+return mesh(new T.BoxGeometry(w,h,d),c,scene,x,y,z);
+}
+box(0,-.2,0,8,.4,8,0x8795a8);
+for(let x of [-4,4])
+for(let z of [-4,4])
+box(x,1,z,.16,2,.16,x<0?0xb83232:0x2358a4);
+for(let y of [.65,1.1,1.55]){
+for(let x of [-4,4])box(x,y,0,.05,.05,8,0xffffff);
+for(let z of [-4,4])box(0,y,z,8,.05,.05,0xffffff);
+}
+function fighter(color){
+let a=new T.Group();
+scene.add(a);
+function ball(x,y,z,sx,sy,sz,c=0xc28b68,p=a){
+let m=mesh(new T.SphereGeometry(1,20,16),c,p,x,y,z);
+m.scale.set(sx,sy,sz);
+return m;
+}
+ball(0,1.35,0,.32,.42,.19);
+ball(0,1.92,0,.18,.23,.18);
+ball(0,2.05,-.025,.18,.12,.17,0x25201c);
+ball(0,.99,0,.29,.19,.19,color);
+let arms=[],legs=[];
+for(let s of [-1,1]){
+let arm=new T.Group();
+arm.position.set(s*.29,1.55,0);
+a.add(arm);
+ball(0,-.15,.03,.11,.23,.11,0xc28b68,arm);
+ball(0,-.24,.20,.10,.11,.23,0xc28b68,arm);
+ball(0,-.19,.39,.14,.14,.14,color,arm);
+arms.push(arm);
+let leg=new T.Group();
+leg.position.set(s*.15,.9,0);
+a.add(leg);
+ball(0,-.22,0,.13,.28,.13,0xc28b68,leg);
+ball(0,-.62,0,.10,.24,.10,0xc28b68,leg);
+ball(0,-.83,.08,.12,.08,.21,0xc28b68,leg);
+legs.push(leg);
+}
+return {a,arms,legs};
+}
+let p=fighter(0xc32c35),e=fighter(0x2462c2);
+let hp=100,eh=100,st=100,active=false,mode='',last=0,anim=0,kind=0,dir=[0,0],guard=0,ea=0;
+let career={w:3,l:0,k:3,rank:0,points:5,power:2};
+try{career=JSON.parse(localStorage.mtcareer)||career}catch{}
+const ranks=['Regional','Brasileiro','Mundial'];
+function save(){try{localStorage.mtcareer=JSON.stringify(career)}catch{}}
+function info(){
+$('stats').textContent=`Vida ${Math.ceil(hp)}% | Rival ${Math.ceil(eh)}% | Energia ${Math.ceil(st)}% | ${career.w}V ${career.l}D ${career.k}KO | Campeão ${ranks[career.rank]}`;
+}
+function start(m){
+mode=m;
+hp=eh=st=100;
+p.a.position.set(-1,0,0);
+e.a.position.set(1,0,0);
+active=true;
+last=performance.now();
+$('msg').textContent='Começou a luta!';
+info();
+}
+$('career').onclick=()=>start('career');
+$('quick').onclick=()=>start('quick');
+$('train').onclick=()=>{
+if(active)return;
+if(career.points){
+career.points--;
+career.power++;
+save();
+$('msg').textContent='Força aumentada! Pontos: '+career.points;
+}else $('msg').textContent='Vença lutas para ganhar pontos.';
+};
+function btn(parent,label,fn){
+let b=document.createElement('button');
+b.textContent=label;
+$(parent).append(b);
+fn(b);
+}
+for(let [label,x,z] of [
+['↖',-1,-1],['↑',0,-1],['↗',1,-1],
+['←',-1,0],['•',0,0],['→',1,0],
+['↙',-1,1],['↓',0,1],['↘',1,1]
+]){
+btn('pad',label,b=>{
+b.onpointerdown=v=>{
+b.setPointerCapture(v.pointerId);
+dir=[x,z];
+};
+b.onpointerup=b.onpointercancel=()=>dir=[0,0];
+});
+}
+let moves=[
+['Jab',7,5,1.6],
+['Direto',12,9,1.6],
+['Cruzado',15,12,1.5],
+['Low kick',14,12,2],
+['Teep',10,10,2],
+['Chute alto',20,20,2],
+['Cotovelo',17,14,1.2],
+['Joelhada',18,16,1.3],
+['Voadora',24,25,1.8],
+['Clinch',5,5,1.2],
+['Defesa',0,0,0],
+['Esquiva',0,5,0]
+];
+moves.forEach((m,i)=>btn('hits',m[0],b=>b.onclick=()=>{
+if(!active||anim>0||st<m[2])return;
+kind=i;
+anim=.35;
+st-=m[2];
+if(i===10){
+guard=1;
+st=Math.min(100,st+12);
+}else if(i===11){
+guard=.7;
+p.a.position.addScaledVector(new T.Vector3().subVectors(p.a.position,e.a.position).normalize(),.5);
+}else if(p.a.position.distanceTo(e.a.position)<m[3]){
+eh=Math.max(0,eh-m[1]-career.power);
+$('msg').textContent=m[0]+' acertou!';
+}else $('msg').textContent='Fora de alcance!';
+if(!eh)finish(true);
+info();
+}));
+function finish(win){
+active=false;
+$('msg').textContent=win?'NOCAUTE! Vitória!':'Derrota por nocaute.';
+if(mode==='career'){
+career.w+=Number(win);
+career.l+=Number(!win);
+career.k+=Number(win);
+career.points+=win?5:2;
+if(win)career.rank=Math.min(2,career.rank+1);
+save();
+}
+info();
+}
+function resize(){
+let w=$('arena').clientWidth,h=$('arena').clientHeight;
+renderer.setSize(w,h);
+camera.aspect=w/h;
+camera.updateProjectionMatrix();
+}
+window.addEventListener('resize',resize);
+resize();
+p.a.position.x=-1;
+e.a.position.x=1;
+info();
+let prev=performance.now();
+function loop(now){
+requestAnimationFrame(loop);
+let dt=Math.min(.05,(now-prev)/1000);
+prev=now;
+if(active){
+p.a.position.x=T.MathUtils.clamp(p.a.position.x+dir[0]*dt*2.4,-3.4,3.4);
+p.a.position.z=T.MathUtils.clamp(p.a.position.z+dir[1]*dt*2.4,-3.4,3.4);
+let delta=new T.Vector3().subVectors(p.a.position,e.a.position);
+let d=delta.length();
+if(d>1.25)e.a.position.addScaledVector(delta.normalize(),dt*.9);
+if(d<1.65&&now-last>1250){
+last=now;
+ea=.35;
+hp=Math.max(0,hp-(guard>0?2:8+career.rank));
+if(!hp)finish(false);
+}
+st=Math.min(100,st+dt*5);
+guard=Math.max(0,guard-dt);
+info();
+}
+p.a.lookAt(e.a.position);
+e.a.lookAt(p.a.position);
+anim=Math.max(0,anim-dt);
+ea=Math.max(0,ea-dt);
+for(let f of [p,e]){
+f.arms.forEach(a=>a.rotation.x=-.5);
+f.legs.forEach(a=>a.rotation.x=0);
+}
+if(anim){
+let v=Math.sin(anim/.35*Math.PI);
+if((kind>=3&&kind<=5)||kind===7||kind===8)
+p.legs[1].rotation.x=-v*1.8;
+else p.arms[1].rotation.x=-.5-v*1.5;
+}
+if(ea)e.arms[1].rotation.x=-.5-Math.sin(ea/.35*Math.PI)*1.5;
+if(!active&&eh===0)e.a.rotation.z=1.5;
+if(!active&&hp===0)p.a.rotation.z=-1.5;
+let mid=new T.Vector3().addVectors(p.a.position,e.a.position).multiplyScalar(.5);
+camera.position.set(mid.x+3,4.2,mid.z+7);
+camera.lookAt(mid.x,1,mid.z);
+renderer.render(scene,camera);
+}
+requestAnimationFrame(loop);
+</script>
+</html>
